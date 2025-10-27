@@ -69,6 +69,36 @@ def initialize_backend():
 initialize_backend()
 
 # ============================================================================
+# HELPERS: TIME ALIGNMENT FOR PREDICTIONS
+# ============================================================================
+
+def _is_indian_symbol(ticker: str) -> bool:
+    return ticker.upper().endswith((".NS", ".BO"))
+
+def compute_predicted_for_time(pred_dt_utc: pd.Timestamp, ticker: str) -> pd.Timestamp:
+    """Compute the bar end time the prediction is for (next bar boundary).
+
+    - US tickers use 1-minute bars
+    - Indian tickers use 5-minute bars
+    Returns a timezone-aware UTC timestamp representing the next bar end.
+    """
+    if pred_dt_utc.tzinfo is None:
+        pred_dt_utc = pred_dt_utc.tz_localize(pytz.UTC)
+
+    if _is_indian_symbol(ticker):
+        tz = pytz.timezone("Asia/Kolkata")
+        interval_min = 5
+    else:
+        tz = pytz.timezone("America/New_York")
+        interval_min = 1
+
+    local = pred_dt_utc.tz_convert(tz)
+    # Floor to interval and then add one interval to get the next bar end
+    local_floor = local.floor(f"{interval_min}T")
+    local_next = local_floor + pd.Timedelta(minutes=interval_min)
+    return local_next.tz_convert(pytz.UTC)
+
+# ============================================================================
 # STYLING AND BACKGROUND
 # ============================================================================
 
@@ -106,8 +136,8 @@ def _set_background_image_local(image_path: str):
     except Exception as e:
         logger.error(f"Error loading background image: {e}")
 
-# Load background image
-_set_background_image_local("assets/stock_bg.jpg")
+# Background image disabled (removed for clarity and performance)
+# _set_background_image_local("assets/stock_bg.jpg")
 
 # ============================================================================
 # CONFIGURATION
@@ -727,21 +757,24 @@ with col_side:
         if not ticker_market_open:
             st.caption("⏰ Next update when market opens")
 
-        currency = "₹" if selected_ticker in INDIAN_TICKERS else "$"
-        pred_close = float(latest_pred['pred_close'])
-        confidence = float(latest_pred.get('confidence', 0.5))
-
-        # Display prediction metrics
-        st.metric(label="Next Period Prediction", value=f"{currency}{pred_close:,.2f}")
-        st.metric(label="Confidence", value=f"{confidence:.1%}")
-
-        # Recent predictions table
+        # Recent predictions table with correct "For" time (next bar end)
         display_df = predictions[['date', 'pred_close', 'confidence']].copy()
-        display_df['date'] = pd.to_datetime(display_df['date']).dt.strftime('%m-%d %H:%M')
-        display_df['pred_close'] = display_df['pred_close'].round(2)
-        display_df['confidence'] = (display_df['confidence'] * 100).round(1).astype(str) + '%'
-        display_df.columns = ['Time', 'Prediction', 'Confidence']
-        
+        display_df['date'] = pd.to_datetime(display_df['date'], utc=True)
+        # Compute the bar time this prediction targets
+        display_df['for_time_utc'] = display_df['date'].apply(lambda d: compute_predicted_for_time(d, selected_ticker))
+
+        # Show local time for readability
+        if _is_indian_symbol(selected_ticker):
+            tz = pytz.timezone("Asia/Kolkata")
+        else:
+            tz = pytz.timezone("America/New_York")
+
+        display_df['Generated'] = display_df['date'].dt.tz_convert(tz).dt.strftime('%m-%d %H:%M')
+        display_df['For'] = display_df['for_time_utc'].dt.tz_convert(tz).dt.strftime('%m-%d %H:%M')
+        display_df['Prediction'] = display_df['pred_close'].round(2)
+        display_df['Confidence'] = display_df['confidence'].round(1).astype(str) + '%'
+
+        display_df = display_df[['Generated', 'For', 'Prediction', 'Confidence']]
         st.dataframe(display_df, width='stretch', hide_index=True)
 
 # ============================================================================
