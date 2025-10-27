@@ -34,9 +34,24 @@ ALL_STOCKS = US_STOCKS + INDIA_STOCKS
 DATA_REFRESH_SECONDS = 60  # Fetch data every 1 minute
 NUM_LAGS = 10  # Number of lag features for ML
 
-# Connect to Supabase
-supabase_url = os.getenv("SUPABASE_URL")
-supabase_key = os.getenv("SUPABASE_KEY")
+# Connect to Supabase (supports both .env and Streamlit secrets)
+def get_supabase_credentials():
+    """Get Supabase credentials from .env or Streamlit secrets"""
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_KEY")
+    
+    # If not in .env, try Streamlit secrets (for Streamlit Cloud)
+    if not supabase_url or not supabase_key:
+        try:
+            import streamlit as st
+            supabase_url = st.secrets.get("SUPABASE_URL")
+            supabase_key = st.secrets.get("SUPABASE_KEY")
+        except:
+            pass
+    
+    return supabase_url, supabase_key
+
+supabase_url, supabase_key = get_supabase_credentials()
 
 if supabase_url and supabase_key:
     supabase = create_client(supabase_url, supabase_key)

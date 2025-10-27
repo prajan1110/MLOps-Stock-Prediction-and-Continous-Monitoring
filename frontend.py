@@ -26,7 +26,8 @@ import base64
 from pathlib import Path
 
 # Import from backend
-from backend_data import get_stock_data, get_predictions, is_market_open, get_market_status
+from backend_data import get_stock_data, get_predictions, is_market_open, get_market_status, start_data_collection
+from backend_main import start_model_training
 
 import logging
 
@@ -41,6 +42,31 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ============================================================================
+# BACKEND INITIALIZATION (Auto-start on Streamlit Cloud)
+# ============================================================================
+
+@st.cache_resource
+def initialize_backend():
+    """
+    Initialize backend services once when app starts
+    This runs only once per Streamlit session
+    """
+    logger.info("🚀 Initializing backend services...")
+    
+    # Start data collection (fetches stock prices every minute)
+    start_data_collection()
+    logger.info("✅ Data collection started")
+    
+    # Start model training (trains models every 5 minutes when market is open)
+    start_model_training()
+    logger.info("✅ Model training started")
+    
+    return True
+
+# Auto-start backend when app loads
+initialize_backend()
 
 # ============================================================================
 # STYLING AND BACKGROUND
