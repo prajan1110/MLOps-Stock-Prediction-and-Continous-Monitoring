@@ -28,8 +28,11 @@ ENV/
 Thumbs.db
 desktop.ini
 
-# Streamlit cache
+# Streamlit cache and secrets
 .streamlit/
+!.streamlit/config.toml
+# Keep secrets.toml out of git for security
+.streamlit/secrets.toml
 
 # Logs
 *.log
