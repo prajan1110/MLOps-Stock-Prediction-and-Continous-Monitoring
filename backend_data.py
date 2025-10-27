@@ -329,6 +329,28 @@ def save_model_performance(symbol: str, model_type: str, mae: float, mse: float,
         logger.error(f"Error saving performance: {e}")
 
 
+def get_model_performance(symbol: str = None, limit: int = 1) -> pd.DataFrame:
+    """Get latest model performance metrics from database"""
+    if not supabase:
+        return pd.DataFrame()
+    
+    try:
+        query = supabase.table('model_performance').select('*')
+        if symbol:
+            query = query.eq('symbol', symbol)
+        query = query.order('trained_at', desc=True).limit(limit)
+        response = query.execute()
+        
+        if response.data:
+            df = pd.DataFrame(response.data)
+            df['trained_at'] = pd.to_datetime(df['trained_at'])
+            return df
+        return pd.DataFrame()
+    except Exception as e:
+        logger.error(f"Error getting model performance: {e}")
+        return pd.DataFrame()
+
+
 # ============================================================================
 # CREATE ML FEATURES
 # ============================================================================

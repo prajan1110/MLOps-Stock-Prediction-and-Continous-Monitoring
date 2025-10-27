@@ -26,7 +26,7 @@ import base64
 from pathlib import Path
 
 # Import from backend
-from backend_data import get_stock_data, get_predictions, is_market_open, get_market_status, start_data_collection
+from backend_data import get_stock_data, get_predictions, is_market_open, get_market_status, start_data_collection, get_model_performance
 from backend_main import start_model_training
 
 import logging
@@ -152,6 +152,11 @@ def get_cached_predictions(ticker=None, limit=10):
             df[c] = np.nan
     return df
 
+@st.cache_data(ttl=60)
+def get_cached_model_performance(ticker):
+    """Cache model performance for 60 seconds"""
+    return get_model_performance(ticker, limit=1)
+
 
 
 # ============================================================================
@@ -175,9 +180,76 @@ with st.sidebar:
         if st.button("Manual Refresh"):
             st.cache_data.clear()
             st.rerun()
+    
+    # Model Performance Metrics (Real-time)
+    st.markdown("---")
+    st.header("🤖 Model Metrics")
+    
+    perf_df = get_cached_model_performance(selected_ticker)
+    
+    if not perf_df.empty and len(perf_df) > 0:
+        latest_perf = perf_df.iloc[0]
+        
+        # Model Type
+        model_type = latest_perf.get('model_type', 'N/A')
+        st.metric(label="Algorithm", value=model_type)
+        
+        # R² Score (Model Accuracy) - most important metric
+        r2_score = latest_perf.get('r2', 0) * 100
+        r2_color = "🟢" if r2_score >= 70 else "🟡" if r2_score >= 50 else "🔴"
+        st.metric(
+            label=f"{r2_color} Accuracy (R²)",
+            value=f"{r2_score:.1f}%",
+            help="R² score measures how well the model explains price movements. Higher is better (>70% is good)"
+        )
+        
+        # Mean Absolute Error (Average prediction error in $)
+        mae = latest_perf.get('mae', 0)
+        st.metric(
+            label="📊 Avg Error (MAE)",
+            value=f"${mae:.2f}",
+            help="Average difference between predicted and actual prices. Lower is better."
+        )
+        
+        # Mean Squared Error (penalizes large errors more)
+        mse = latest_perf.get('mse', 0)
+        rmse = np.sqrt(mse)  # Root Mean Squared Error
+        st.metric(
+            label="📉 RMSE",
+            value=f"${rmse:.2f}",
+            help="Root Mean Squared Error - penalizes larger errors more heavily. Lower is better."
+        )
+        
+        # Training timestamp
+        trained_at = latest_perf.get('trained_at', 'Unknown')
+        if trained_at != 'Unknown':
+            try:
+                trained_dt = pd.to_datetime(trained_at)
+                time_ago = datetime.now(pytz.UTC) - trained_dt.tz_localize(pytz.UTC) if trained_dt.tzinfo is None else datetime.now(pytz.UTC) - trained_dt
+                hours_ago = time_ago.total_seconds() / 3600
+                if hours_ago < 1:
+                    time_str = f"{int(time_ago.total_seconds() / 60)} min ago"
+                else:
+                    time_str = f"{hours_ago:.1f} hrs ago"
+                st.caption(f"⏱️ Last trained: {time_str}")
+            except:
+                st.caption(f"⏱️ Last trained: {trained_at}")
+        
+        # Model quality indicator
+        st.markdown("---")
+        if r2_score >= 70:
+            st.success("✅ **Model Quality: Excellent**")
+        elif r2_score >= 50:
+            st.warning("⚠️ **Model Quality: Good**")
+        else:
+            st.error("❌ **Model Quality: Needs Improvement**")
+            
+    else:
+        st.warning("⏳ Model training in progress...")
+        st.info("Metrics will appear after first training cycle (takes 2-5 minutes)")
 
     st.markdown("---")
-    st.header("ℹ️ Info")
+    st.header("ℹ️ Market Info")
     st.info("� Data updates every 1 minute\n\n🤖 Predictions during market hours\n\n⏰ US: 9:30 AM - 4:00 PM EST\n\n⏰ India: 9:15 AM - 3:30 PM IST")
 
 # ============================================================================
