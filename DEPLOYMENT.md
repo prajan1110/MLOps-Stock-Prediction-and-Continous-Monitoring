@@ -1,7 +1,7 @@
 # 🚀 Streamlit Cloud Deployment Guide
 
 ## Prerequisites
-- ✅ GitHub repository: `https://github.com/SkandaKumarPV/Stock_prediction_DS-PROJECT.git`
+- ✅ GitHub repository: `https://github.com/prajan1110/MLOps-Stock-Prediction-and-Continous-Monitoring.git`
 - ✅ Supabase database: Already configured
 - ✅ Code pushed to GitHub
 
@@ -15,7 +15,7 @@
 ### 2. Deploy Your App
 1. Click **"New app"** button
 2. Fill in the deployment form:
-   - **Repository**: `SkandaKumarPV/Stock_prediction_DS-PROJECT`
+   - **Repository**: `prajan1110/MLOps-Stock-Prediction-and-Continous-Monitoring`
    - **Branch**: `main`
    - **Main file path**: `frontend.py`
    - **App URL** (optional): Choose a custom subdomain or use auto-generated
@@ -25,8 +25,8 @@
 2. In the **Secrets** section, paste this TOML format:
 
 ```toml
-SUPABASE_URL = "https://fqzdorlokioibeuozsvi.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZxemRvcmxva2lvaWJldW96c3ZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0ODQxODksImV4cCI6MjA3NzA2MDE4OX0.1oDqpvoTRfSPZKANc592hV4LZdOmia1L6qjzmaG7AVA"
+SUPABASE_URL = "your_supabase_url"
+SUPABASE_KEY = "your_supabase_anon_key"
 ```
 
 3. Click **"Save"**
@@ -60,10 +60,9 @@ Once deployed:
 - Click **"Manage app"** → **"Logs"** to see real-time logs
 
 ## Supabase Database Setup (Already Done ✅)
+## Supabase Database Setup
 
-Your Supabase database is already configured at:
-- **URL**: https://fqzdorlokioibeuozsvi.supabase.co
-- **Tables**: Created via `supabase_tables.sql`
+Configure your own Supabase project URL and anon key as secrets. Create the tables by running `supabase_tables.sql` in the Supabase SQL Editor.
 
 If you need to recreate tables:
 1. Go to https://supabase.com/dashboard
