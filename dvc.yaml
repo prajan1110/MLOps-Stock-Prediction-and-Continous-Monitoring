@@ -1,0 +1,29 @@
+stages:
+  collect:
+    cmd: python -m src.data_collection --output data/raw/stock_data.csv --period 2y --interval 1d
+    deps:
+      - src/config.py
+      - src/data_collection.py
+      - src/validation.py
+    outs:
+      - data/raw/stock_data.csv
+  prepare:
+    cmd: python -m src.preprocessing --input data/raw/stock_data.csv --output data/processed/training.csv
+    deps:
+      - data/raw/stock_data.csv
+      - src/preprocessing.py
+      - src/validation.py
+    outs:
+      - data/processed/training.csv
+  train:
+    cmd: python -m src.train --input data/processed/training.csv --models-dir models --metrics-output metrics/summary.json
+    deps:
+      - data/processed/training.csv
+      - src/evaluate.py
+      - src/features.py
+      - src/predict.py
+      - src/train.py
+    outs:
+      - models
+    metrics:
+      - metrics/summary.json

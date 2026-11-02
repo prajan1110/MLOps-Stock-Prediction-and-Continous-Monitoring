@@ -1,4 +1,10 @@
-# 📈 Stock Prediction System# 📈 Stock Prediction System# 📈 Stock Prediction System# 📈 Real-Time Stock Predictor
+# End-to-End MLOps Pipeline for Stock Price Prediction
+
+> Canonical setup and workflow documentation: [MLOPS_GUIDE.md](MLOPS_GUIDE.md). The legacy notes below are retained for context; follow the linked guide for current commands and configuration.
+
+---
+
+# Legacy Stock Prediction Notes
 
 
 

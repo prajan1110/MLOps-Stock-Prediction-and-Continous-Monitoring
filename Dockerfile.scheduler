@@ -1,0 +1,22 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt requirements-mlops.txt ./
+RUN python -m pip install --no-cache-dir --retries 10 --timeout 300 -r requirements-mlops.txt
+
+COPY .dvc/config .dvc/config
+COPY .dvcignore dvc.yaml dvc.lock ./
+COPY src ./src
+COPY monitoring ./monitoring
+COPY models ./models
+RUN git init . && mkdir -p /app/.dvc/cache /app/data /app/models /app/metrics /app/mlruns
+
+CMD ["python", "-m", "monitoring.automation", "--interval-hours", "24"]
