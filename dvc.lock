@@ -1,0 +1,83 @@
+schema: '2.0'
+stages:
+  collect:
+    cmd: python -m src.data_collection --output data/raw/stock_data.csv --period
+      2y --interval 1d
+    deps:
+    - path: src/config.py
+      hash: md5
+      md5: e4cb01603be7fdead7ae7ac74d374f40
+      size: 212
+      isexec: true
+    - path: src/data_collection.py
+      hash: md5
+      md5: f3201c6d9c219818fadc55b218a7a58a
+      size: 3107
+      isexec: true
+    - path: src/validation.py
+      hash: md5
+      md5: d1eb37226d43e10dbcfa905c4ac660ce
+      size: 2230
+      isexec: true
+    outs:
+    - path: data/raw/stock_data.csv
+      hash: md5
+      md5: d94494bd815c359a4c20e26df00115e1
+      size: 519869
+  prepare:
+    cmd: python -m src.preprocessing --input data/raw/stock_data.csv --output
+      data/processed/training.csv
+    deps:
+    - path: data/raw/stock_data.csv
+      hash: md5
+      md5: d94494bd815c359a4c20e26df00115e1
+      size: 519869
+    - path: src/preprocessing.py
+      hash: md5
+      md5: ca7aca002a9ad4d3cccedd33ce80d33f
+      size: 865
+      isexec: true
+    - path: src/validation.py
+      hash: md5
+      md5: d1eb37226d43e10dbcfa905c4ac660ce
+      size: 2230
+      isexec: true
+    outs:
+    - path: data/processed/training.csv
+      hash: md5
+      md5: e79f2c45d13890fc0718d400eb17c739
+      size: 518418
+  train:
+    cmd: python -m src.train --input data/processed/training.csv --models-dir
+      models --metrics-output metrics/summary.json
+    deps:
+    - path: data/processed/training.csv
+      hash: md5
+      md5: e79f2c45d13890fc0718d400eb17c739
+      size: 518418
+    - path: src/evaluate.py
+      hash: md5
+      md5: 97d276c11692a65e37e092b212c6ce03
+      size: 954
+    - path: src/features.py
+      hash: md5
+      md5: 8164925c2053652c0ca0503911f9ef86
+      size: 2015
+    - path: src/predict.py
+      hash: md5
+      md5: 49ae3e52a421efe346623b27237536f3
+      size: 1432
+    - path: src/train.py
+      hash: md5
+      md5: 38ef94faf453b47d6c8e12f01f0ffb0c
+      size: 8583
+    outs:
+    - path: metrics/summary.json
+      hash: md5
+      md5: c74c5f333957131df7c9228457e54393
+      size: 6733
+    - path: models
+      hash: md5
+      md5: 568d8ea5dcab6179fb55c8f1c8c90e63.dir
+      size: 3508448
+      nfiles: 10

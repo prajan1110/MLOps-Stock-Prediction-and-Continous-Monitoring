@@ -16,6 +16,7 @@ import pytz
 import os
 from dotenv import load_dotenv
 from supabase import create_client
+from src.config import ALL_STOCKS, INDIA_STOCKS, US_STOCKS
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -26,10 +27,6 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 # Stock symbols to track
-US_STOCKS = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
-INDIA_STOCKS = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "HINDUNILVR.NS"]
-ALL_STOCKS = US_STOCKS + INDIA_STOCKS
-
 # Timings
 DATA_REFRESH_SECONDS = 60  # Fetch data every 1 minute
 NUM_LAGS = 10  # Number of lag features for ML

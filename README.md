@@ -1,1091 +1,401 @@
-# 📈 Stock Prediction System# 📈 Stock Prediction System# 📈 Stock Prediction System# 📈 Real-Time Stock Predictor
+# Stock Prediction and MLOps
 
+A stock-market dashboard and end-to-end MLOps project for collecting OHLCV data, creating time-aware features, training and comparing regression models, serving predictions, and monitoring feature drift.
 
+> **Disclaimer:** This project is for educational and demonstration purposes only. It is not investment advice. Market data is obtained from Yahoo Finance through `yfinance`; availability, delays, and coverage are not guaranteed.
 
-A real-time stock price prediction system that uses Machine Learning to predict stock prices during market hours. Tracks 10 stocks (5 US + 5 Indian) with automatic market hours detection.
+## Contents
 
+- [Project overview](#project-overview)
+- [Architecture and pipelines](#architecture-and-pipelines)
+- [Supported tickers and features](#supported-tickers-and-features)
+- [Requirements](#requirements)
+- [Quick start on Windows](#quick-start-on-windows)
+- [Run with Docker Compose](#run-with-docker-compose)
+- [Run the training pipeline](#run-the-training-pipeline)
+- [Run the inference API](#run-the-inference-api)
+- [Monitoring and automation](#monitoring-and-automation)
+- [Configuration and secrets](#configuration-and-secrets)
+- [Supabase setup](#supabase-setup)
+- [Tests and validation](#tests-and-validation)
+- [Project layout](#project-layout)
+- [Deployment](#deployment)
+- [Troubleshooting](#troubleshooting)
+- [Limitations and security notes](#limitations-and-security-notes)
 
+## Project overview
 
-## ✨ FeaturesA simple stock price prediction system using machine learning. Predicts prices for US and Indian stocks.
+The repository contains two related application paths:
 
+1. **Interactive stock dashboard:** `frontend.py` uses Streamlit and Plotly to show stock data, charts, market status, predictions, and model performance. Its legacy backend (`backend_data.py`, `backend_model.py`, and `backend_main.py`) fetches data during market hours and stores it in Supabase.
+2. **Reproducible MLOps path:** DVC manages daily data collection, preprocessing, and model training. The training code uses MLflow for experiment tracking, packages model artifacts for each ticker, and can be served through FastAPI. A monitoring process checks feature drift and conditionally retrains the models.
 
+The dashboard's market-hours collector and the DVC-based daily pipeline are separate workflows. The dashboard does not call the FastAPI service, and training through DVC does not write into the dashboard's Supabase tables.
 
-- **Smart Market Hours Detection**: Automatically detects when US and Indian stock markets are open
+## Architecture and pipelines
 
-- **Real-time Data Collection**: Fetches live stock data every 1-5 minutes during market hours
+### DVC training pipeline
 
-- **Dual ML Models**: Uses Linear Regression + Random Forest, picks the best performer## ✨ What It DoesComplete real-time stock prediction system with machine learning and cloud database.A comprehensive real-time stock prediction system that collects stock data using yfinance and generates predictions using advanced machine learning models.
+The pipeline in [`dvc.yaml`](dvc.yaml) contains three stages:
 
-- **Live Web Dashboard**: Beautiful Streamlit interface with charts and predictions
+| Stage | What it does | Main outputs |
+|---|---|---|
+| `collect` | Downloads two years of daily OHLCV data for the configured tickers from Yahoo Finance. | `data/raw/stock_data.csv` |
+| `prepare` | Validates and normalizes OHLCV data for training. | `data/processed/training.csv` |
+| `train` | Builds features, compares models, logs runs to MLflow, and writes selected model artifacts and summary metrics. | `models/*.joblib`, `metrics/summary.json` |
 
-- **Cloud Database**: Stores all data in Supabase (PostgreSQL cloud)
+Inspect or execute the pipeline with `dvc dag` and `dvc repro`. DVC tracks stage dependencies and outputs; the local cache is not a shared remote by default.
 
-- **10 Stocks Tracked**:
+### Model training and evaluation
 
-  - 🇺🇸 US: AAPL, MSFT, GOOGL, AMZN, TSLA- Fetches live stock data from Yahoo Finance
+For each ticker, training creates lagged closing-price features, moving averages, RSI, Bollinger Bands, and a moving average of volume. The target is the next observed closing price. Rows are sorted chronologically and split into train, validation, and test partitions (70%, 15%, 15%). Linear Regression and Random Forest candidates are compared by validation MAE. The selected candidate is refit on train plus validation data and evaluated once on the held-out test period.
 
-  - 🇮🇳 India: RELIANCE.NS, TCS.NS, INFY.NS, HDFCBANK.NS, ITC.NS
+MLflow records the experiment `stock-price-prediction`, parameters, metrics, selected model, dataset SHA-256, feature schema, and model artifact. Local tracking data is stored under `mlruns/` by default.
 
-- Trains machine learning models (Linear Regression + Random Forest)
+### Monitoring and retraining
 
-## 🚀 Quick Start
+The monitoring workflow refreshes and prepares data, compares current feature distributions with the last successful reference snapshot using Population Stability Index (PSI), and retrains when PSI reaches the configured threshold. The default threshold is `0.2`. A first run also trains when the reference snapshot or expected model artifacts are missing.
 
-- Predicts next price with confidence score---## 🚀 Features
+The latest report is written to `metrics/drift_latest.json`. The reference snapshot is `data/reference_features.csv` and is updated only after training produces all expected ticker artifacts. Drift is a review signal; it is not a guarantee that a model is inaccurate or profitable.
 
-### 1. Install Dependencies
+### Services
 
-- Only runs predictions during market hours
+- **Streamlit dashboard:** `http://localhost:8501`
+- **FastAPI inference:** `http://localhost:8000`
+- **Interactive API docs:** `http://localhost:8000/docs`
+- **MLflow UI (optional):** `http://127.0.0.1:5000`
+
+## Supported tickers and features
+
+The MLOps pipeline uses the ticker list in [`src/config.py`](src/config.py):
+
+- United States: `AAPL`, `MSFT`, `GOOGL`, `AMZN`, `TSLA`
+- India: `RELIANCE.NS`, `TCS.NS`, `HDFCBANK.NS`, `INFY.NS`, `HINDUNILVR.NS`
+
+The engineered features include closing-price lags 1–10, 5/10/20/50-period closing-price averages, 14-period RSI, 20-period Bollinger Band values, and 20-period volume average. The model predicts the next available observation, not a guaranteed real-time market price.
+
+## Requirements
+
+- Python 3.12 is the tested container runtime and recommended local version.
+- Git is needed for DVC repository operations.
+- Docker Desktop with the Compose plugin is needed for the containerized stack.
+- Internet access is needed to download Yahoo Finance data and install dependencies.
+- A Supabase project is needed for the dashboard's cloud-backed storage.
+
+## Quick start on Windows
+
+Open PowerShell in the repository directory:
 
 ```powershell
-
-pip install -r requirements.txt- Stores everything in Supabase cloud database
-
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-- Shows predictions in beautiful web dashboard
+If PowerShell prevents virtual environment activation, either allow activation for the current terminal with `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` or run the environment's Python directly as `.\.venv\Scripts\python.exe`.
 
-### 2. Setup Supabase
+### Configure Supabase
 
-## 🚀 QUICK START (3 Steps)### Real-Time Data Collection
-
-1. Go to [supabase.com](https://supabase.com) and create a free account
-
-2. Create a new project## 📊 Tracked Stocks
-
-3. Go to SQL Editor and run the `supabase_tables.sql` file
-
-4. Copy your project URL and API key from Settings → API- **1-minute intervals** for US stocks, **5-minute intervals** for Indian stocks
-
-5. Create a `.env` file in the project folder:
-
-**US Stocks:** AAPL, MSFT, GOOGL, AMZN, TSLA  
-
-```env
-
-SUPABASE_URL=your_project_url_here**Indian Stocks:** RELIANCE.NS, TCS.NS, HDFCBANK.NS, INFY.NS, HINDUNILVR.NS### Step 1: Create Database Tables (2 minutes)- **Multiple stocks**: 10 stocks (5 US + 5 Indian)
-
-SUPABASE_KEY=your_anon_key_here
-
-```
-
-
-
-### 3. Run the Application## 🚀 How to Run  - US: AAPL, MSFT, GOOGL, AMZN, TSLA
-
-
+Create a Supabase project, copy [`.env.example`](.env.example) to `.env`, and set the project URL and publishable/anon key:
 
 ```powershell
+Copy-Item .env.example .env
+```
 
+Edit `.env` locally. Never commit it or put a Supabase secret/service-role key in the dashboard. Run [`supabase_tables.sql`](supabase_tables.sql) in the Supabase SQL Editor to create the tables.
+
+### Start the dashboard and its backend
+
+```powershell
 python run.py
-
-```### Step 1: Install1. Go to https://supabase.com and login  - Indian: RELIANCE.NS, TCS.NS, HDFCBANK.NS, INFY.NS, HINDUNILVR.NS
-
-
-
-The app will start:```bash
-
-- Backend: Collects data and trains models
-
-- Frontend: Opens at http://localhost:8501pip install -r requirements.txt2. Open your project: **fqzdorlokioibeuozsvi**- **Automatic updates**: Background collection every minute
-
-
-
-## 📁 Project Structure```
-
-
-
-```3. Click **SQL Editor** (left sidebar)- **Database storage**: SQLite database for persistent data
-
-sharat_stock/
-
-├── backend_data.py       # Fetches stock data and saves to database### Step 2: Setup Database
-
-├── backend_model.py      # Trains ML models and makes predictions
-
-├── backend_main.py       # Coordinates data collection and training4. Click **New Query**
-
-├── frontend.py           # Streamlit web dashboard
-
-├── run.py               # Main entry point - starts everything1. Create account at https://supabase.com
-
-├── requirements.txt      # Python packages needed
-
-├── supabase_tables.sql   # Database schema2. Create new project5. Open file `supabase_tables.sql` in this folder### Advanced Predictions
-
-└── .env                 # Your Supabase credentials (create this)
-
-```3. Get your credentials (Settings → API)
-
-
-
-## 🎯 How It Works4. Create `.env` file:6. Copy ALL the SQL code- **Multiple ML models**: Linear Regression and Random Forest
-
-
-
-### Simple Explanation```env
-
-
-
-1. **Data Collection** (`backend_data.py`):SUPABASE_URL=your_url_here7. Paste in Supabase SQL Editor- **Feature engineering**: Technical indicators including:
-
-   - Checks if market is open (US: 9:30 AM-4:00 PM EST, India: 9:15 AM-3:30 PM IST)
-
-   - Downloads latest stock prices using yfinanceSUPABASE_KEY=your_key_here
-
-   - Saves data to Supabase cloud database
-
-```8. Click **RUN** button  - Price lags (1-10 periods)
-
-2. **ML Training** (`backend_model.py`):
-
-   - Trains two models: Linear Regression + Random Forest
-
-   - Creates features: Moving averages, RSI, price changes
-
-   - Picks the model with best accuracy### Step 3: Create Tables9. Wait for "Success" message  - Moving averages (5, 10, 20, 50)
-
-   - Makes predictions for next price
-
-
-
-3. **Coordination** (`backend_main.py`):
-
-   - Runs data collection every 5 minutes when markets are open1. Open Supabase Dashboard10. Verify: Go to **Table Editor** → You should see 3 tables:  - RSI (Relative Strength Index)
-
-   - Waits 10 minutes when markets are closed
-
-   - Trains models automatically after collecting data2. Go to SQL Editor
-
-
-
-4. **Dashboard** (`frontend.py`):3. Click New Query    - `ohlcv`  - Bollinger Bands
-
-   - Shows market open/closed status with big colored banner
-
-   - Displays candlestick charts with technical indicators4. Copy all code from `supabase_tables.sql`
-
-   - Shows latest predictions with confidence scores
-
-   - Updates automatically5. Paste and click RUN    - `model_predictions`  - Volume analysis
-
-
-
-### Market Hours Behavior6. Check Table Editor - you should see 3 tables
-
-
-
-- **Markets Open**: Actively fetches data every 5 minutes and makes new predictions    - `model_performance`- **Model selection**: Automatically selects best performing model by MAE
-
-- **Markets Closed**: Shows last predictions, waits to resume when markets open
-
-- **Status Display**: Green banner = Open, Red banner = Closed### Step 4: Start App
-
-
-
-## 🔧 Troubleshooting```bash- **Confidence scoring**: Each prediction includes confidence level
-
-
-
-### "Connection refused" or "Cannot connect to Supabase"python run.py
-
-- Check your `.env` file has correct SUPABASE_URL and SUPABASE_KEY
-
-- Verify your Supabase project is active at supabase.com```### Step 2: Verify Credentials (Already Done ✅)
-
-
-
-### "No data available" in dashboard
-
-- Wait 5-10 minutes for initial data collection
-
-- Check that markets are currently openDashboard opens at http://localhost:8501### Interactive Dashboard
-
-- Look at terminal output for errors
-
-
-
-### "Module not found" errors
-
-- Run: `pip install -r requirements.txt`## 📁 Simple File StructureYour `.env` file is already configured with Supabase credentials.- **Real-time charts**: Candlestick charts with technical indicators
-
-- Make sure you're using Python 3.11 or higher
-
-
-
-### Streamlit shows old errors after code changes
-
-- Run: `streamlit cache clear````- **Prediction visualization**: Shows predictions vs actual prices
-
-- Then restart: `python run.py`
-
-5 Files Total:
-
-## 📊 Technical Details
-
-### Step 3: Run the Application- **Auto-refresh**: 30-second automatic data refresh
-
-- **Python Version**: 3.11+
-
-- **ML Models**: scikit-learn (LinearRegression, RandomForestRegressor)BACKEND (3 files):
-
-- **Data Source**: yfinance (Yahoo Finance API)
-
-- **Database**: Supabase (PostgreSQL)├── backend_data.py    - Fetches data, saves to database- **Responsive design**: Modern interface with background image
-
-- **Frontend**: Streamlit with Plotly charts
-
-- **Timezone Handling**: pytz (America/New_York, Asia/Kolkata)├── backend_model.py   - Trains models, makes predictions
-
-- **Data Intervals**: 1-minute (US stocks), 5-minute (Indian stocks)
-
-└── backend_main.py    - Coordinates everything**Option A: Double-click `START.bat`** (Windows - Easiest!)- **Multiple timeframes**: 1-30 days of historical data
-
-## 🌐 Deploying to GitHub
-
-
-
-### Prerequisites
-
-- Git installed on your computerFRONTEND (1 file):
-
-- GitHub account created
-
-- Repository created at: https://github.com/SkandaKumarPV/Stock_prediction_DS-PROJECT.git└── frontend.py        - Web dashboard
-
-
-
-### Steps to Push Code**Option B: Command line**## 📁 Project Structure
-
-
-
-1. **Open PowerShell in project folder** (`sharat_stock/`)RUN (1 file):
-
-
-
-2. **Initialize Git and push**:└── run.py            - Starts everything```powershell
-
-
-
-```powershell```
-
-# Initialize git repository
-
-git initpython run.py```
-
-
-
-# Add all files (except those in .gitignore)## 🧠 How It Works (Simple Explanation)
-
-git add .
-
-```sharat_stock/
-
-# Commit with message
-
-git commit -m "Initial commit: Stock prediction system with market hours detection"### 1. Data Collection (backend_data.py)
-
-
-
-# Add your GitHub repository```├── data_handler.py      # Data collection and storage (Backend Part 1)
-
-git remote add origin https://github.com/SkandaKumarPV/Stock_prediction_DS-PROJECT.git
-
-Every 1 minute:
-
-# Push to GitHub (main branch)
-
-git push -u origin main→ Fetch latest stock prices from Yahoo Finance**That's it!** 🎉 Dashboard opens at http://localhost:8501├── model_handler.py     # Model training and predictions (Backend Part 2)
-
 ```
 
-→ Save to Supabase database
+Then open `http://localhost:8501`. The entry point starts the background data collector and model worker and launches Streamlit. The dashboard refreshes automatically. It requires valid Supabase credentials and the tables described above.
 
-### ⚠️ Important Security Notes
+To start only the dashboard process:
 
-→ Add technical indicators (moving averages, RSI, etc.)├── final.py            # Main coordinator (Entry point)
-
-- The `.gitignore` file will automatically exclude your `.env` file
-
-- **Never commit your Supabase credentials** to GitHub```
-
-- If you want to deploy to a server, add credentials as environment variables
-
-- Your `.env` file stays local and private---├── streamlit_app.py    # Streamlit web dashboard (Frontend)
-
-
-
-### Optional: Deploy to Streamlit Community Cloud### 2. Model Training (backend_model.py)
-
-
-
-1. Go to [share.streamlit.io](https://share.streamlit.io)```├── run.py              # Easy startup script
-
-2. Connect your GitHub account
-
-3. Select your repositoryEvery 5 minutes (when markets open):
-
-4. Set main file path: `frontend.py`
-
-5. Add your Supabase secrets in "Advanced settings" → "Secrets":→ Get data from database## 📁 Project Structure├── START.bat           # Windows batch file for quick start
-
-   ```
-
-   SUPABASE_URL = "your_url_here"→ Train Linear Regression model
-
-   SUPABASE_KEY = "your_key_here"
-
-   ```→ Train Random Forest model├── requirements.txt    # Python dependencies
-
-6. Click "Deploy"
-
-→ Test both models
-
-Note: On Streamlit Cloud, only the frontend will run. You'll need a separate service (like Heroku, Railway, or a VPS) to run the backend continuously.
-
-→ Pick the one with lower error```├── data.db            # SQLite database (auto-created)
-
-## 📝 Code Simplification
-
-→ Make prediction
-
-This codebase has been simplified for easy understanding:
-
-- **Clear variable names**: `ALL_STOCKS` instead of `TICKERS`→ Save prediction to databasesharat_stock/├── assets/            # Background images and resources
-
-- **Simple function names**: `fetch_stock_data()` instead of `fetch_latest_data()`
-
-- **Step-by-step comments**: Each major step is numbered and explained```
-
-- **Single responsibility**: Each file has one clear purpose
-
-├── backend_data.py       # Data collection from yfinance → Supabase└── README.md          # Documentation
-
-## 📄 License
-
-### 3. Coordinator (backend_main.py)
-
-This project is open source and available for educational purposes.
-
-```├── backend_model.py      # Machine learning models & predictions```
-
-## 🤝 Contributing
-
-Checks every cycle:
-
-Feel free to fork, modify, and submit pull requests. For major changes, please open an issue first.
-
-→ Is market open?├── backend_main.py       # Coordinator (starts everything)
-
----
-
-   Yes: Train models (every 5 min)
-
-**Created with ❤️ for learning Machine Learning and Stock Market Analysis**
-
-   No: Wait and check again (every 10 min)├── frontend.py           # Streamlit dashboard (web UI)## 🛠️ Installation
-
-```
-
-├── run.py                # Single entry point
-
-### 4. Dashboard (frontend.py)
-
-```├── supabase_tables.sql   # Database setup SQL (run once)1. **Clone or download** the project files
-
-Shows:
-
-→ Market status (OPEN/CLOSED)├── .env                  # Supabase credentials (configured ✅)2. **Install dependencies**:
-
-→ Stock price chart
-
-→ Prediction with confidence└── requirements.txt      # Python dependencies (installed ✅)   ```bash
-
-→ Technical indicators
-
-``````   pip install -r requirements.txt
-
-
-
-## ⏰ Market Hours   ```
-
-
-
-**US Market:** Monday-Friday, 9:30 AM - 4:00 PM EST  **Total: 3 backend + 1 frontend + 1 run = 5 files** ✨
-
-**Indian Market:** Monday-Friday, 9:15 AM - 3:30 PM IST
-
-## 🚀 Quick Start
-
-**Smart Behavior:**
-
-- Markets Open → Makes new predictions every 5 min---
-
-- Markets Closed → Shows last predictions, waits
-
-### **EASIEST WAY (Windows):**
-
-## 📊 Database (3 Simple Tables)
-
-## 🎯 What It DoesJust double-click `START.bat` file!
-
-### Table 1: ohlcv (Stock Prices)
-
-Stores: date, symbol, open, high, low, close, volume
-
-
-
-### Table 2: model_predictions (Predictions)### When You Run `python run.py`:### **Option 1: Run Everything (Recommended)**
-
-Stores: symbol, predicted_price, confidence, date
-
-```bash
-
-### Table 3: model_performance (Model Quality)
-
-Stores: symbol, model_type, accuracy_metrics, trained_at1. **Backend starts automatically:**python run.py
-
-
-
-## 🎨 Dashboard Features   - Fetches stock prices for 10 stocks (5 US + 5 Indian)```
-
-
-
-- **Big Status Banner**: See if markets are OPEN (green) or CLOSED (red)   - Stores data in Supabase cloud databaseThis starts both backend (data collection + ML models) and frontend (dashboard).
-
-- **Stock Selector**: Choose any of 10 stocks
-
-- **Price Chart**: Interactive candlestick chart   - Trains ML models (Linear Regression + Random Forest)
-
-- **Prediction Card**: Shows predicted price + confidence %
-
-- **Technical Indicators**: Moving averages, RSI, Bollinger Bands   - Generates price predictions every 5 minutes### **Option 2: Manual Start**
-
-- **Model Info**: Which model was used + how accurate it is
-
-   - Updates data every 1 minute
-
-## 🔧 Troubleshooting
-
-**Backend (data collection + predictions):**
-
-**Problem:** "Could not find table 'public.ohlcv'"  
-
-**Solution:** You didn't create tables. Do Step 3 again.2. **Frontend opens in browser:**```bash
-
-
-
-**Problem:** "Missing Supabase credentials"     - Dashboard at http://localhost:8501python final.py
-
-**Solution:** Create `.env` file with your URL and key.
-
-   - Interactive candlestick charts```
-
-**Problem:** "No data available"  
-
-**Solution:** Wait 1-2 minutes for data collection to start.   - Technical indicators (Moving Averages, RSI, Bollinger Bands)
-
-
-
-**Problem:** "Models not training"     - Real-time price predictions with confidence scores**Frontend (web dashboard):**
-
-**Solution:** Check if markets are open. Models only work during market hours.
-
-   - Auto-refreshes every 30 seconds```bash
-
-## 📖 Code Explained Simply
-
-python -m streamlit run streamlit_app.py
-
-### backend_data.py (163 lines)
-
-- `fetch_stock_data()` - Gets data from Yahoo Finance3. **View data in Supabase:**```
-
-- `save_to_database()` - Saves data to Supabase
-
-- `is_market_open()` - Checks if trading is happening now   - Go to Supabase Dashboard → Table Editor
-
-- `create_ml_features()` - Adds moving averages, RSI, etc.
-
-- `start_data_collection()` - Runs fetch loop every minute   - See all stock prices, predictions, and model performanceThe dashboard will open at: **http://localhost:8501**
-
-
-
-### backend_model.py (151 lines)   - Edit data manually if needed
-
-- `prepare_training_data()` - Splits data into train/test
-
-- `train_two_models()` - Trains Linear Regression + Random Forest   - Export to CSV anytime## 🗄️ Database Configuration
-
-- `select_best_model()` - Picks model with lowest error
-
-- `calculate_confidence_score()` - Gives prediction confidence 0-100%
-
-- `train_and_predict_one_stock()` - Complete flow for one stock
-
----### **Option 1: Supabase (Recommended - Cloud Database with Dashboard)** 🚀
-
-### backend_main.py (143 lines)
-
-- `_train_models_continuously()` - Background worker loop
-
-- `start_model_training()` - Starts the training thread
-
-- `start_backend()` - Starts data + training## 📊 Tracked Stocks**Why Supabase?**
-
-
-
-### frontend.py (716 lines)- ✅ **Beautiful web dashboard** to view/edit data
-
-- Market status display
-
-- Stock selector### US Stocks (5):- ✅ **Real-time updates** - see data changes instantly
-
-- Candlestick charts
-
-- Prediction display- AAPL - Apple Inc.- ✅ **Free tier** with generous limits
-
-- Technical indicator plots
-
-- Model performance metrics- MSFT - Microsoft Corp.- ✅ **Automatic backups** and scalability
-
-
-
-### run.py (78 lines)- GOOGL - Alphabet Inc.- ✅ **No installation** needed - fully cloud-based
-
-- `start_backend()` - Starts backend in thread
-
-- `start_frontend()` - Starts Streamlit dashboard- AMZN - Amazon.com Inc.
-
-- `main()` - Entry point that starts everything
-
-- TSLA - Tesla Inc.**Quick Setup (5 minutes):**
-
-## 💡 Simple Concepts
-
-```powershell
-
-### What is Machine Learning?
-
-Computer learns patterns from past data to predict future prices.### Indian Stocks (5):# 1. Install Supabase package
-
-
-
-### What is Linear Regression?- RELIANCE.NS - Reliance Industriespip install supabase python-dotenv
-
-Draws a straight line through data points to predict trend.
-
-- TCS.NS - Tata Consultancy Services
-
-### What is Random Forest?
-
-Makes many decision trees and averages their predictions.- HDFCBANK.NS - HDFC Bank# 2. Follow the quick start guide
-
-
-
-### What is Confidence Score?- INFY.NS - Infosys Ltd.# See QUICKSTART_SUPABASE.md
-
-How sure the model is: 0% = guessing, 100% = very confident
-
-- HINDUNILVR.NS - Hindustan Unilever```
-
-### What is MAE (Mean Absolute Error)?
-
-Average prediction error in dollars. Lower = better.
-
-
-
-### What is R² Score?---**📖 See [QUICKSTART_SUPABASE.md](QUICKSTART_SUPABASE.md) for 5-minute setup**  
-
-Model accuracy: 0 = terrible, 1 = perfect
-
-**📖 See [SUPABASE_SETUP.md](SUPABASE_SETUP.md) for detailed guide**
-
-## ⚠️ Important Notes
-
-## 🔧 How It Works
-
-- This is for LEARNING only, not financial advice
-
-- Stock predictions are never 100% accurate### **Option 2: SQLite (Default - Local Development)**
-
-- Always do your own research before investing
-
-- Never invest money you can't afford to lose### Data Flow:No setup needed! The app automatically creates `data.db` file.
-
-
-
-## 📦 What Gets Installed```
-
-
-
-- `streamlit` - Web dashboard frameworkyfinance API### **Option 3: PostgreSQL (Server Deployment)**
-
-- `pandas` - Data manipulation
-
-- `yfinance` - Gets stock data from Yahoo    ↓For production/cloud deployment, set the `DATABASE_URL` environment variable:
-
-- `scikit-learn` - Machine learning models
-
-- `plotly` - Interactive chartsbackend_data.py (fetch & store)
-
-- `supabase` - Cloud database
-
-- `pytz` - Timezone handling    ↓```powershell
-
-
-
-## 🎯 Simple WorkflowSupabase Database (cloud)# Windows PowerShell
-
-
-
-```    ↓$env:DATABASE_URL="postgresql://username:password@host:5432/database"
-
-1. Run: python run.py
-
-   ↓backend_model.py (train ML models)
-
-2. Backend starts in background
-
-   ↓    ↓# Mac/Linux
-
-3. Fetches data every 1 min
-
-   ↓Predictions saved to Supabaseexport DATABASE_URL="postgresql://username:password@host:5432/database"
-
-4. Trains models every 5 min (when markets open)
-
-   ↓    ↓```
-
-5. Saves predictions to database
-
-   ↓frontend.py (display dashboard)
-
-6. Dashboard shows everything in real-time
-
-```    ↓**📖 See [POSTGRESQL_SETUP.md](POSTGRESQL_SETUP.md) for detailed setup instructions including:**
-
-
-
-## 📈 What Makes a Good Prediction?Your Browser (http://localhost:8501)- Local PostgreSQL installation
-
-
-
-- ✅ Confidence > 70%```- Free cloud databases (ElephantSQL, Supabase)
-
-- ✅ Model R² > 0.8
-
-- ✅ Low error (MAE < $2)- Heroku deployment
-
-- ✅ Recent data available
-
-- ✅ Low price volatility### Machine Learning:- AWS/Azure/GCP setup
-
-
-
-## 🚦 Color Meanings- **Features:** Price lags, moving averages (5/10/20/50), RSI, Bollinger Bands, volume
-
-
-
-- 🟢 Green = Market OPEN / Good prediction- **Models:** Linear Regression + Random Forest (100 trees)## �📊 How It Works
-
-- 🔴 Red = Market CLOSED / Low confidence  
-
-- 🟡 Yellow = Medium confidence- **Selection:** Automatically picks best model (lowest error)
-
-- 🔵 Blue = Information
-
-- **Validation:** 80/20 train/test split### Backend Architecture (2-File System)
-
-## ❓ FAQ
-
-- **Confidence:** Based on R² score, MAE, and volatility
-
-**Q: How often do predictions update?**  
-
-A: Every 5 minutes when markets are open.#### **1. data_handler.py** - Data Collection & Storage
-
-
-
-**Q: Can I add more stocks?**  ### Background Workers:- Fetches stock data from yfinance API
-
-A: Yes, edit `ALL_STOCKS` list in `backend_data.py`.
-
-- **Data Collection:** Runs every 60 seconds- Stores data in database (SQLite or PostgreSQL)
-
-**Q: Is Supabase free?**  
-
-A: Yes, free tier is enough for this project.- **Model Training:** Runs every 300 seconds (5 minutes)- Handles timezone conversions (US Eastern / Indian IST)
-
-
-
-**Q: Do I need to keep it running 24/7?**  - **Dashboard:** Auto-refreshes every 30 seconds- Creates features for machine learning
-
-A: No, it automatically handles market hours.
-
-- Manages background data collection thread
-
-**Q: Can I use this for real trading?**  
-
-A: No, this is educational only. Not financial advice.---
-
-
-
----#### **2. model_handler.py** - Model Training & Prediction
-
-
-
-**Made for learning purposes** 📚  ## ⚙️ Configuration- Trains Linear Regression and Random Forest models
-
-**Have fun exploring machine learning!** 🚀
-
-- Validates models using train/test split
-
-### Change Data Collection Interval:- Selects best model based on MAE (Mean Absolute Error)
-
-Edit `backend_data.py`:- Generates predictions with confidence scores
-
-```python- Stores predictions and performance metrics
-
-REFRESH_INTERVAL = 60  # seconds (default: 1 minute)
-
-```#### **3. final.py** - Coordinator
-
-- Integrates data_handler and model_handler
-
-### Change Model Training Interval:- Manages the complete pipeline:
-
-Edit `backend_main.py`:  1. Collect data → 2. Train models → 3. Generate predictions
-
-```python- Provides convenience functions for frontend
-
-time.sleep(300)  # seconds (default: 5 minutes)
-
-```### Frontend
-
-**streamlit_app.py** - Interactive Dashboard
-
-### Add/Remove Stocks:- Real-time price charts with technical indicators
-
-Edit `backend_data.py`:- Candlestick charts with MA, RSI, Bollinger Bands
-
-```python- Prediction visualization
-
-US_TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]- Auto-refresh every 30 seconds
-
-INDIAN_TICKERS = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "HINDUNILVR.NS"]
-
-```## 🎯 Key Features
-
-
-
----### Enhanced Predictions
-
-- **Advanced features**: RSI, Bollinger Bands, multiple moving averages
-
-## 🐛 Troubleshooting- **Better models**: Random Forest in addition to Linear Regression
-
-- **Feature scaling**: StandardScaler for improved model performance
-
-### Error: "Could not find the table 'public.ohlcv'"- **Confidence scoring**: Dynamic confidence based on market volatility
-
-**Problem:** Tables not created in Supabase  
-
-**Solution:** Run the SQL from `supabase_tables.sql` in Supabase SQL Editor (Step 1 above)### Real-Time Capabilities
-
-- **Threading**: Background data collection doesn't block UI
-
-### Error: "Missing Supabase credentials"- **1-minute updates**: More frequent data collection for better predictions
-
-**Problem:** `.env` file missing or incorrect  - **Error handling**: Robust error handling and logging
-
-**Solution:** Your `.env` is already configured, but verify it has:- **Database optimization**: Efficient data storage and retrieval
-
-```
-
-SUPABASE_URL=https://fqzdorlokioibeuozsvi.supabase.co### User Experience
-
-SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...- **Modern UI**: Beautiful, responsive Streamlit interface
-
-```- **Interactive charts**: Advanced Plotly visualizations
-
-- **Auto-refresh**: Automatic data updates
-
-### Frontend doesn't load- **Performance metrics**: Model accuracy and confidence scores
-
-**Problem:** Streamlit not starting  
-
-**Solution:** Run directly:## 📈 Technical Details
-
-```powershell
-
-python -m streamlit run frontend.py### Database Schema
-
-```- **ohlcv**: Stock price data (Open, High, Low, Close, Volume)
-
-- **predictions**: Model predictions with confidence scores
-
-### No data showing in dashboard- **model_performance**: Model accuracy metrics
-
-**Problem:** Data collection hasn't started yet  
-
-**Solution:** Wait 1-2 minutes for initial data collection### Models Used
-
-- **Linear Regression**: Fast, interpretable baseline model
-
-### Backend errors- **Random Forest**: Ensemble method for better accuracy
-
-**Problem:** Dependencies missing  - **Feature Selection**: Automatic selection of best features
-
-**Solution:** Reinstall:- **Cross-validation**: Model performance evaluation
-
-```powershell
-
-pip install -r requirements.txt### Performance Metrics
-
-```- **MAE**: Mean Absolute Error
-
-- **MSE**: Mean Squared Error
-
-### Connection test- **RMSE**: Root Mean Squared Error
-
-```powershell- **R² Score**: Coefficient of determination
-
-python -c "from backend_data import supabase; print('Connected:', supabase is not None)"
-
-```## 🔧 Configuration
-
-Should show: `Connected: True`
-
-### Tickers
-
----Edit the `TICKERS` list in `final.py` to add/remove stocks:
-
-```python
-
-## 🛑 Stopping the ApplicationTICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META", "NFLX"]
-
-```
-
-Press **Ctrl+C** in the terminal
-
-### Refresh Interval
-
-The system will:Change the data collection frequency in `final.py`:
-
-1. Stop data collection thread```python
-
-2. Stop model training threadREFRESH_INTERVAL = 1  # minutes
-
-3. Close Streamlit dashboard```
-
-4. Exit cleanly
-
-### Prediction Features
-
----Modify the `N_LAGS` variable to change the number of price lags:
-
-```python
-
-## 📊 MonitoringN_LAGS = 10  # Number of price lags for prediction
-
-```
-
-### Check Logs:
-
-- Terminal shows real-time logs## 🐛 Troubleshooting
-
-- Look for ✅ (success) or ❌ (error) symbols
-
-### Common Issues
-
-### Check Supabase Dashboard:1. **No data showing**: Market might be closed, wait for market hours
-
-1. Go to https://supabase.com/dashboard/project/fqzdorlokioibeuozsvi2. **Predictions not updating**: Ensure data collection is running
-
-2. **Table Editor** → View all your data3. **Database errors**: Delete `data.db` to reset the database
-
-   - `ohlcv` table → Stock prices4. **Import errors**: Run `pip install -r requirements.txt`
-
-   - `model_predictions` table → ML predictions
-
-   - `model_performance` table → Model accuracy metrics### Logs
-
-3. **SQL Editor** → Run custom queriesCheck the console output for detailed logging information about data collection and prediction processes.
-
-4. **Database** → View table structure and indexes
-
-## 📝 Notes
-
-### Check Dashboard:
-
-- Open http://localhost:8501- **Market hours**: Data collection works best during market hours
-
-- Select any stock from dropdown- **Internet required**: yfinance needs internet connection
-
-- View real-time charts and predictions- **Storage**: Database grows over time, consider periodic cleanup
-
-- Check confidence scores- **Performance**: More data = better predictions
-
-
-
----## 🤝 Contributing
-
-
-
-## 📈 FeaturesFeel free to submit issues and enhancement requests!
-
-
-
-### Data Collection:## 📄 License
-
-✅ Real-time stock prices from yfinance  
-
-✅ 1-minute intervals (US stocks)  This project is open source and available under the MIT License.
-
-✅ 5-minute intervals (Indian stocks)  
-✅ Automatic timezone handling (UTC/EST/IST)  
-✅ Cloud storage in Supabase  
-
-### Machine Learning:
-✅ Linear Regression model  
-✅ Random Forest (100 trees)  
-✅ Automatic model selection  
-✅ 15+ technical features  
-✅ Confidence scoring (0-100%)  
-✅ Performance tracking (MAE, MSE, R²)  
-
-### Dashboard:
-✅ Interactive candlestick charts  
-✅ Moving averages (5, 10, 20, 50-day)  
-✅ RSI indicator  
-✅ Bollinger Bands  
-✅ Volume analysis  
-✅ Price predictions with confidence  
-✅ Auto-refresh (30 seconds)  
-✅ Beautiful UI with background image  
-
-### Supabase Integration:
-✅ Cloud database with web dashboard  
-✅ Real-time data synchronization  
-✅ Manual data editing through UI  
-✅ CSV export functionality  
-✅ Automatic backups  
-✅ Scalable to millions of records  
-
----
-
-## 💡 Tips
-
-1. **First run takes 1-2 minutes** - Initial data collection for all stocks
-2. **Models need 50+ data points** - Wait for data to accumulate
-3. **Best predictions after 1 hour** - More historical data = better accuracy
-4. **Monitor Supabase dashboard** - Verify data is being stored correctly
-5. **Enable auto-refresh in frontend** - See updates in real-time
-6. **Check confidence scores** - Higher confidence = more reliable prediction
-
----
-
-## 📦 Dependencies
-
-All installed via `requirements.txt`:
-- **pandas, numpy** - Data processing
-- **scikit-learn** - Machine learning
-- **yfinance** - Stock data API
-- **streamlit, plotly** - Dashboard and charts
-- **supabase** - Cloud database
-- **python-dotenv** - Environment variables
-- **pytz** - Timezone handling
-
----
-
-## 🎓 File Descriptions
-
-### Backend Files:
-
-**1. backend_data.py** (351 lines)
-- Fetches stock data from yfinance API
-- Stores in Supabase database
-- Creates ML features (lags, moving averages, RSI, Bollinger Bands)
-- Background data collection worker (every 60 seconds)
-- Database query functions
-
-**2. backend_model.py** (223 lines)
-- Trains Linear Regression and Random Forest models
-- Validates models on test data
-- Selects best model based on MAE
-- Generates price predictions
-- Calculates confidence scores
-- Saves predictions and performance metrics
-
-**3. backend_main.py** (152 lines)
-- Coordinates data collection and model training
-- Manages background worker threads
-- Initial data collection on startup
-- Main entry point for backend
-
-### Frontend File:
-
-**frontend.py** (646 lines)
-- Streamlit web dashboard
-- Interactive Plotly charts
-- Real-time data display
-- Technical indicator visualization
-- Prediction display with confidence
-- Auto-refresh functionality
-
-### Run File:
-
-**run.py** (88 lines)
-- Single entry point for entire system
-- Starts backend in background thread
-- Starts frontend (Streamlit)
-- Handles graceful shutdown
-
----
-
-## 🚀 Advanced Usage
-
-### Run Backend Only:
-```powershell
-python backend_main.py
-```
-
-### Run Frontend Only:
 ```powershell
 python -m streamlit run frontend.py
 ```
 
-### Collect Initial Data:
-```python
-from backend_main import collect_initial_data
-collect_initial_data()
+The dashboard initializes its collector and model worker when it starts.
+
+## Run with Docker Compose
+
+The local Compose stack includes the dashboard, inference API, and daily MLOps automation service.
+
+First, make model artifacts available for the API image and local mount. For an initial local setup, follow [Run the training pipeline](#run-the-training-pipeline) before building the API. Configure `.env` as described above; Compose passes it to the dashboard.
+
+```powershell
+Copy-Item .env.example .env
+docker compose up --build
 ```
 
-### Train Models Manually:
-```python
-from backend_model import train_and_predict_all
-train_and_predict_all()
+Open:
+
+- Dashboard: `http://localhost:8501`
+- API health: `http://localhost:8000/health`
+- API model information: `http://localhost:8000/model-info`
+- Interactive API docs: `http://localhost:8000/docs`
+
+Stop the stack with `Ctrl+C`, or use `docker compose down` from another terminal. Add `-d` to run in the background; inspect output with `docker compose logs -f` and stop it with `docker compose down`.
+
+The scheduler runs immediately after startup, then repeats every 24 hours. Local Compose persists data, DVC cache, models, metrics, and MLflow runs through bind mounts. Keep these files backed up if you need to preserve local experiments or model state.
+
+The separate [`compose.production.yaml`](compose.production.yaml) references prebuilt images in GitHub Container Registry and uses named volumes. Use it only after those images have been published and the host has been configured to pull them. The repository does not include an active GitHub Actions workflow to build or publish these images.
+
+## Run the training pipeline
+
+From the activated virtual environment at the repository root:
+
+```powershell
+dvc dag
+dvc repro
 ```
 
----
+The collection stage needs internet access. Expected outputs include:
 
-## 📋 Quick Reference
+- `data/raw/stock_data.csv`
+- `data/processed/training.csv`
+- `models/<TICKER>.joblib` (Indian ticker periods are replaced with underscores)
+- `metrics/summary.json`
+- MLflow run data under `mlruns/`
 
-| Action | Command |
-|--------|---------|
-| Run application | `python run.py` |
-| Run backend only | `python backend_main.py` |
-| Run frontend only | `streamlit run frontend.py` |
-| Test connection | `python -c "from backend_data import supabase; print(supabase)"` |
-| Stop application | Press `Ctrl+C` |
+You can run one stage or invoke the modules directly:
 
-| URL | Purpose |
-|-----|---------|
-| http://localhost:8501 | Dashboard |
-| https://supabase.com/dashboard/project/fqzdorlokioibeuozsvi | Database |
+```powershell
+dvc repro collect
+dvc repro prepare
+dvc repro train
 
----
+python -m src.data_collection --output data/raw/stock_data.csv --period 2y --interval 1d
+python -m src.preprocessing --input data/raw/stock_data.csv --output data/processed/training.csv
+python -m src.train --input data/processed/training.csv --models-dir models --metrics-output metrics/summary.json
+```
 
-**Last Updated:** October 26, 2025  
-**Status:** ✅ Ready to Run  
-**Next Step:** Create tables in Supabase, then run `python run.py`
+DVC uses a local cache unless a remote is configured. To share data and artifacts between machines, configure a DVC remote (for example, S3) and store credentials outside Git:
+
+```powershell
+dvc remote add -d storage s3://your-bucket/stock-prediction
+```
+
+On another machine, configure the same remote and credentials, then use `dvc pull` to retrieve tracked outputs.
+
+## Run the inference API
+
+The API reads `*.joblib` artifacts from `models/`. Train models or retrieve them with DVC before starting the service:
+
+```powershell
+python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+```
+
+Endpoints:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/health` | Service status and count of available model artifacts. |
+| `GET` | `/model-info` | Metadata for available models; optionally filter with `?ticker=AAPL`. |
+| `POST` | `/predict` | Predict the next observation for a supported ticker. |
+| `GET` | `/docs` | Interactive OpenAPI documentation. |
+
+Example request (the values below are illustrative; for useful predictions, supply current values for all features returned by `/model-info`):
+
+```powershell
+$features = @{
+  close_lag_1 = 190.0; close_lag_2 = 189.0; close_lag_3 = 188.0
+  close_lag_4 = 187.0; close_lag_5 = 186.0; close_lag_6 = 185.0
+  close_lag_7 = 184.0; close_lag_8 = 183.0; close_lag_9 = 182.0
+  close_lag_10 = 181.0
+  close_ma_5 = 188.0; close_ma_10 = 185.0; close_ma_20 = 180.0
+  close_ma_50 = 175.0
+  rsi_14 = 55.0
+  bb_middle_20 = 180.0; bb_upper_20 = 195.0; bb_lower_20 = 165.0
+  volume_ma_20 = 1000000.0
+}
+$body = @{ ticker = "AAPL"; features = $features } | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/predict -ContentType "application/json" -Body $body
+```
+
+Use `/model-info?ticker=AAPL` to confirm the required feature names. Requests for unsupported tickers are rejected; a missing model artifact results in HTTP 404. Request IDs and latency are recorded in the service logs and returned in the `X-Request-ID` response header.
+
+## Monitoring and automation
+
+### Run a one-time automated cycle
+
+```powershell
+python -m monitoring.automation --once
+```
+
+This refreshes data and prepares it through DVC, compares per-ticker features against the previous reference snapshot, and runs the train stage if drift is detected or a bootstrap is required.
+
+### Run the scheduler
+
+```powershell
+python -m monitoring.automation --interval-hours 24 --threshold 0.2
+```
+
+The scheduler runs a cycle immediately and repeats at the requested interval. Check `metrics/drift_latest.json` for the latest PSI report.
+
+### Compare feature snapshots manually
+
+```powershell
+python -m monitoring.drift_detection --reference path\to\reference_features.csv --current path\to\current_features.csv --threshold 0.2
+```
+
+PSI is calculated only for shared numeric columns. A threshold breach identifies a distribution change; it does not itself assess prediction quality. Performance monitoring requires matching predictions with later observed prices and evaluating metrics such as rolling MAE/RMSE.
+
+### View MLflow experiments
+
+In another terminal:
+
+```powershell
+mlflow ui --backend-store-uri mlruns --host 127.0.0.1 --port 5000
+```
+
+Open `http://127.0.0.1:5000`. The default tracking store is local and is not shared or backed up automatically. Set `MLFLOW_TRACKING_URI` to a durable tracking server when using a shared environment.
+
+## Configuration and secrets
+
+[`.env.example`](.env.example) documents the supported local environment variables:
+
+| Variable | Use |
+|---|---|
+| `SUPABASE_URL` | Supabase project URL for the dashboard backend. |
+| `SUPABASE_KEY` | Supabase publishable/anon key for the dashboard backend. |
+| `MLFLOW_TRACKING_URI` | Optional MLflow tracking URI; training defaults to local `mlruns/`. |
+| `MODEL_DIR` | Optional API model directory; defaults to `models`. |
+| `LOG_LEVEL` | Documented logging setting; service logging currently uses its configured defaults. |
+
+`.env` is ignored by Git. Streamlit Community Cloud uses the app's Settings → Secrets in TOML format instead:
+
+```toml
+SUPABASE_URL = "https://your-project-id.supabase.co"
+SUPABASE_KEY = "your-publishable-or-anon-key"
+```
+
+Do not paste real credentials into issues, logs, screenshots, or source files.
+
+## Supabase setup
+
+The dashboard backend uses three tables defined in [`supabase_tables.sql`](supabase_tables.sql):
+
+- `ohlcv`: collected prices and volumes.
+- `model_predictions`: predictions and confidence values.
+- `model_performance`: model evaluation data.
+
+Run the SQL in Supabase's SQL Editor, then confirm the tables exist in Table Editor. The SQL currently creates permissive Row Level Security policies for all operations. These policies are unsafe for a publicly exposed database; replace them with least-privilege policies before public or production use.
+
+## Tests and validation
+
+Run the test suite and compile-check the Python packages:
+
+```powershell
+python -m pytest -q
+python -m compileall -q api src monitoring dashboard
+```
+
+For Docker Compose configuration validation:
+
+```powershell
+docker compose config --quiet
+```
+
+Tests use synthetic data and mocked model artifacts; they do not depend on Yahoo Finance or a live Supabase project.
+
+## Project layout
+
+```text
+.
+├── api/                      FastAPI model-inference service
+├── assets/                   Dashboard assets
+├── dashboard/                Streamlit wrapper entry point
+├── data/                     DVC-managed raw, processed, and reference data
+├── metrics/                  Training summary and drift reports
+├── mlruns/                   Local MLflow tracking store (runtime data)
+├── models/                   Per-ticker serialized model artifacts
+├── monitoring/               PSI checks, logging, and scheduled automation
+├── src/
+│   ├── config.py             Supported ticker configuration
+│   ├── data_collection.py    Yahoo Finance collection
+│   ├── preprocessing.py      OHLCV validation and preparation
+│   ├── features.py           Time-aware feature engineering
+│   ├── train.py              Model training, evaluation, and MLflow logging
+│   └── predict.py            Model artifact loading and prediction
+├── tests/                    Automated tests
+├── backend_data.py            Supabase-backed dashboard data collection
+├── backend_main.py            Dashboard backend worker coordination
+├── backend_model.py           Dashboard model training and predictions
+├── frontend.py                Main Streamlit stock dashboard
+├── run.py                     Starts dashboard and its backend workers
+├── dvc.yaml                   Reproducible collection/prepare/train pipeline
+├── compose.yaml               Local multi-service stack
+├── compose.production.yaml    Published-image deployment configuration
+├── supabase_tables.sql        Dashboard database schema and policies
+├── requirements*.txt          Runtime and MLOps dependencies
+├── DEPLOYMENT.md              Streamlit and Compose deployment notes
+└── MLOPS_GUIDE.md             MLOps operational runbook
+```
+
+Generated data, models, local MLflow runs, DVC cache, and `.env` should not be committed unless intentionally versioned for a specific deployment workflow.
+
+## Deployment
+
+### Streamlit Community Cloud
+
+Use the GitHub repository, select the branch to deploy, set the app entry point to `frontend.py`, and add `SUPABASE_URL` and `SUPABASE_KEY` under app secrets. Ensure the Supabase tables exist and tighten the SQL policies before exposing the app. See [`DEPLOYMENT.md`](DEPLOYMENT.md) for the deployment checklist.
+
+### Docker host
+
+For a host running local builds, use `docker compose up --build -d`. The production Compose file instead expects published GHCR images, a configured `.env`, and persistent named volumes. Plan backups for the data, model, metrics, DVC cache, and MLflow volumes. The project does not currently configure a cloud deployment target or image-publishing workflow.
+
+## Troubleshooting
+
+### `ModuleNotFoundError`
+
+Activate the intended virtual environment and reinstall the pinned dependencies:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+The Streamlit refresh component is included in the root requirements and `requirements-dashboard-ui.txt`.
+
+### Dashboard cannot connect to Supabase
+
+- Confirm `.env` exists at the repository root and contains the correct URL and publishable/anon key.
+- Verify the Supabase project is active and that `supabase_tables.sql` has been run.
+- Restart Streamlit after changing environment variables.
+
+### No prediction models or API returns 404
+
+- Run `dvc repro` and confirm artifacts exist in `models/`, or configure a DVC remote and run `dvc pull`.
+- The API loads the model directory at startup/request time; confirm `MODEL_DIR` points to the artifacts.
+- For Docker, verify the host `models/` folder contains the model files mounted into the container.
+
+### DVC data collection fails
+
+- Confirm internet access and try again later if Yahoo Finance is unavailable or rate-limiting requests.
+- Run from the repository root with the project's Python environment activated.
+- Check DVC output for the failing stage and verify available disk space.
+
+### Docker dashboard or API is unavailable
+
+- Confirm Docker Desktop is running and `docker compose up --build` completed successfully.
+- Review logs with `docker compose logs -f`.
+- Check that ports 8501 and 8000 are not already in use.
+- Verify `.env` is present for the dashboard and model artifacts are available for inference.
+
+## Limitations and security notes
+
+- Yahoo Finance data is not an exchange-grade real-time feed. Intraday coverage and availability vary.
+- The target is the next available observation's closing price. Model metrics do not imply future returns or trading performance.
+- The legacy dashboard's market-hours checks use weekdays and clock times; they do not include an exchange holiday calendar.
+- PSI measures feature-distribution changes, not model accuracy. The automation does not automatically deploy a new model to a remote production target.
+- The default DVC and MLflow stores are local. Configure remote storage and backups for team or production use.
+- The current Supabase SQL policies allow broad access. Review and restrict Row Level Security before using real or public data.
+- Store credentials in local environment/secrets management only. Never commit `.env`, service-role keys, or cloud credentials.
+
+## License
+
+No license file is currently included. Contact the repository owner before redistributing or reusing the project beyond applicable repository terms.

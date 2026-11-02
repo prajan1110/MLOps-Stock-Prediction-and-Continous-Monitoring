@@ -87,12 +87,36 @@ If you need to recreate tables:
 - Push changes to GitHub
 - Streamlit Cloud will auto-redeploy
 
-## Free Tier Limits (Streamlit Cloud)
-- ✅ Unlimited public apps
-- ✅ 1GB RAM per app
-- ✅ Automatic redeployment from GitHub
-- ✅ Custom subdomains
-- ✅ HTTPS included
+## Provider Limits
+
+Check Streamlit Community Cloud's current availability, resource limits, sleep behavior, and pricing before deployment. These policies can change.
+
+## Docker Compose Deployment
+
+Train/materialize model artifacts first with `dvc repro` (or `dvc pull` on a fresh machine), then create a local `.env` from `.env.example`. The `.env` file is ignored by Git.
+
+```powershell
+docker compose up --build
+```
+
+- Streamlit dashboard: `http://localhost:8501`
+- FastAPI inference: `http://localhost:8000`
+- API docs: `http://localhost:8000/docs`
+
+The dashboard and inference API are separate containers. The API mounts the local `models/` directory read-only; without DVC model artifacts, `/health` reports zero models and `/predict` returns 404. Never bake credentials into either image.
+
+## Streamlit Community Cloud
+
+Deploy the existing dashboard from the GitHub repository `prajan1110/MLOps-Stock-Prediction-and-Continous-Monitoring`, using the branch you intend to publish and root entry point `frontend.py`. Install dependencies from the repository's pinned `requirements.txt`.
+
+In the app's **Settings → Secrets**, configure TOML values:
+
+```toml
+SUPABASE_URL = "https://your-project-id.supabase.co"
+SUPABASE_KEY = "your-publishable-or-anon-key"
+```
+
+Do not paste a Supabase secret/service-role key into source control or use it as a browser-exposed key. The current SQL schema grants broad table access; replace those policies with appropriately restricted RLS policies before making the database publicly accessible. Streamlit Cloud deployment requires GitHub/Streamlit account access and must be completed from the hosting dashboard.
 
 ## Support
 - Streamlit docs: https://docs.streamlit.io/streamlit-community-cloud

@@ -30,12 +30,17 @@ desktop.ini
 
 # Streamlit cache and secrets
 .streamlit/
+!.streamlit/
+.streamlit/*
 !.streamlit/config.toml
+!.streamlit/secrets.toml.example
 # Keep secrets.toml out of git for security
 .streamlit/secrets.toml
 
 # Logs
 *.log
+logs/
+mlruns/
 
 # Database files (if using local SQLite)
 *.db
@@ -64,3 +69,8 @@ htmlcov/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+/models
+
+# Local automation state
+/data/reference_features.csv
+/metrics/drift_latest.json

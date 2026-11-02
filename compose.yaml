@@ -1,0 +1,36 @@
+services:
+  inference-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      MODEL_DIR: /app/models
+    volumes:
+      - ./models:/app/models:ro
+    restart: unless-stopped
+
+  streamlit-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  mlops-automation:
+    build:
+      context: .
+      dockerfile: Dockerfile.scheduler
+    volumes:
+      - ./.dvc/cache:/app/.dvc/cache
+      - ./dvc.lock:/app/dvc.lock
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./metrics:/app/metrics
+      - ./mlruns:/app/mlruns
+    restart: unless-stopped
+    stop_grace_period: 30s

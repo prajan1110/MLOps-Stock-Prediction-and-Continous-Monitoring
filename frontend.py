@@ -20,10 +20,10 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
 from datetime import datetime, timedelta
-import time
 import pytz
 import base64
 from pathlib import Path
+from streamlit_autorefresh import st_autorefresh
 
 # Import from backend
 from backend_data import get_stock_data, get_predictions, is_market_open, get_market_status, start_data_collection, get_model_performance
@@ -94,7 +94,7 @@ def compute_predicted_for_time(pred_dt_utc: pd.Timestamp, ticker: str) -> pd.Tim
 
     local = pred_dt_utc.tz_convert(tz)
     # Floor to interval and then add one interval to get the next bar end
-    local_floor = local.floor(f"{interval_min}T")
+    local_floor = local.floor(f"{interval_min}min")
     local_next = local_floor + pd.Timedelta(minutes=interval_min)
     return local_next.tz_convert(pytz.UTC)
 
@@ -207,6 +207,8 @@ with st.sidebar:
     with st.expander("⏱ View Options", expanded=False):
         days_back = st.slider("Days to Display", min_value=1, max_value=30, value=7, key="days_back")
         auto_refresh = st.checkbox("Auto-refresh (30s)", value=True, key="auto_refresh")
+        if auto_refresh:
+            st_autorefresh(interval=30_000, key="dashboard_refresh")
         if st.button("Manual Refresh"):
             st.cache_data.clear()
             st.rerun()
@@ -825,7 +827,3 @@ st.markdown(
 # ============================================================================
 # AUTO-REFRESH MECHANISM
 # ============================================================================
-
-if 'auto_refresh' in locals() and auto_refresh:
-    time.sleep(30)
-    st.rerun()

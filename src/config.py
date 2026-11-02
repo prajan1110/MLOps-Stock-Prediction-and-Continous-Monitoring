@@ -1,0 +1,5 @@
+"""Shared project configuration."""
+
+US_STOCKS = ("AAPL", "MSFT", "GOOGL", "AMZN", "TSLA")
+INDIA_STOCKS = ("RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "HINDUNILVR.NS")
+ALL_STOCKS = US_STOCKS + INDIA_STOCKS

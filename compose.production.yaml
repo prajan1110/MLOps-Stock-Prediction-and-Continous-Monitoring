@@ -1,0 +1,36 @@
+services:
+  inference-api:
+    image: ghcr.io/prajan1110/stock-prediction-api:${IMAGE_TAG:-latest}
+    ports:
+      - "8000:8000"
+    environment:
+      MODEL_DIR: /app/models
+    volumes:
+      - model-artifacts:/app/models:ro
+    restart: unless-stopped
+
+  streamlit-dashboard:
+    image: ghcr.io/prajan1110/stock-prediction-dashboard:${IMAGE_TAG:-latest}
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  mlops-automation:
+    image: ghcr.io/prajan1110/stock-prediction-automation:${IMAGE_TAG:-latest}
+    volumes:
+      - dvc-cache:/app/.dvc/cache
+      - data:/app/data
+      - model-artifacts:/app/models
+      - metrics:/app/metrics
+      - mlflow-runs:/app/mlruns
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+volumes:
+  dvc-cache:
+  data:
+  model-artifacts:
+  metrics:
+  mlflow-runs:
